@@ -493,7 +493,7 @@ def IV_sweep_analysis(	IV,
 			a.legend(fontsize=8)
 			a.set_xlabel('Volts [V]')
 		
-		title_all = 'Temperature = %.2f eV, \n Electron density = %.2e %s, \n Debye length = %.2e m, r = %.2e m \n V_float=%.2f V, V_plasma=%.2f V' % (temperature_in_eV, n_e, r'm$^{-3}$', debye, radius, V_float, V_plasma)
+		title_all = 'Temperature = %.2f eV, \n Electron density = %.2e %s, \n Debye length = %.2e m, probe_radius = %.2e m \n V_float=%.2f V, V_plasma=%.2f V' % (temperature_in_eV, n_e, r'm$^{-3}$', debye, radius, V_float, V_plasma)
 		ax[0].set_title(title_all, fontsize=10)
 		fig.set_tight_layout(True)
 		
