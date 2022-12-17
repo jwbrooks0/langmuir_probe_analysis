@@ -28,7 +28,7 @@ This code implements a single Langmuir probe analysis for plasma meaurements rec
 
 __Why doesn't this code work on my data?__
 
-There are MANY possibilities.  First, check my notes above about nuances, assumptions, conventions, etc.  Second: you may have too few points between V_float and V_plasma.  Retake your data but with more points.  Third: Your data has low SNR.  Try filtering first.  Or retake your data but with more averaging.  Fourth:  Your sheath must be "thin" for this code to work.  I.e. your probe radius should ideally be at least 10 times smaller than the debye length.  Increase the size of your probe and take more data.
+There are MANY possibilities.  First, check my notes above about nuances, assumptions, conventions, etc.  Second: you may have too few points, particulary between V_float and V_plasma.  Retake your data but with more points.  Third: Your data has low SNR.  Try filtering first.  Or retake your data but with more averaging.  Fourth:  Your sheath must be "thin" for this code to work.  I.e. your probe radius should ideally be at least 10 times smaller than the Debye length.  Increase the size of your probe and take more data.
 	 
 		
 
