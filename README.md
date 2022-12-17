@@ -22,6 +22,7 @@ This code implements a single Langmuir probe analysis for plasma meaurements rec
 * This code (at present) does not calculate the final ion density as discussed in [1].  
 * V_plasma can be calculated in two ways in this code.  First is using the derivative of a smoothed electron current.  Note that this method does not always work particularly if SNR is low, there aren't enough points, and if the sheath is 'thick'.  The second method uses the definition of V_plasma in Lamguir probe theory.  While potentially less accurate, this method is much more robust. 
 * If you need to debug the code (or debug how the code processes your data), set vebose=True and plot_misc=True.   
+* I used log and symmetric-log plots in my results which can be confusing to some.  
 	 
 ### FAQ
 
