@@ -2,7 +2,7 @@
 Single Langmuir Probe Analysis
 
 
-This code implements a single Langmuir Probe analysis and is primarily based on the work in reference [1].
+This code implements a single Langmuir probe analysis for plasma meaurements recorded with a single Langmuir probe.  This code is primarily based on the work in reference [1].
 
 
 ### Example results
