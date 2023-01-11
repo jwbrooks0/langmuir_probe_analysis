@@ -1,5 +1,5 @@
 # langmuir_probe_analysis
-Single Langmuir Probe Analysis
+Single Langmuir Probe Analysis for thin sheaths.
 
 
 This code implements a single Langmuir probe analysis for plasma meaurements recorded with a single Langmuir probe.  This code is primarily based on the work in reference [1].
