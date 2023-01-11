@@ -255,14 +255,16 @@ def _calc_temp_from_electron_current(I_electron,
 	Ie_windowed = I_electron[(I_electron.V <= exp_fit_bounds[1]) & (I_electron.V >= exp_fit_bounds[0])]
 	
 	## check that the windowed electron current is valid
+	if bool((Ie_windowed < 0).sum() > 0):
+		I_electron = I_electron[_np.where(I_electron<0)[0][-1] + 1 :].dropna('V')
 	if len(Ie_windowed) == 2:
 		print("Warning: 3 points minimum are required between V_float and V_plasma.  2 found.  Expanding window to include a 3rd point.  ")
 		exp_fit_bounds = [exp_fit_bounds[0], exp_fit_bounds[1] + dV]
 		Ie_windowed = I_electron[(I_electron.V <= exp_fit_bounds[1]) & (I_electron.V >= exp_fit_bounds[0])]
 	elif len(Ie_windowed) < 2 :
 		raise Exception("3 points minimum are required between V_float and V_plasma.  Possible reasons:  1) not enough points.  2) Your guess for temperature or V_plasma is too low.")
-	if bool((Ie_windowed < 0).sum() > 0):
-		raise Exception("Electron current must be positive to perform this fit.  Check that your I_sat fit is correct. " )
+
+		# raise Exception("Electron current must be positive to perform this fit.  Check that your I_sat fit is correct. " )
 		
 	## take the natural log of the electron current and apply a linear fit
 	ln_Ie = _xr.DataArray(_np.log(Ie_windowed), dims=Ie_windowed.dims, coords=Ie_windowed.coords)
@@ -273,6 +275,9 @@ def _calc_temp_from_electron_current(I_electron,
 	
 	## convert the linear fit results to exponetial
 	exp_fit = _np.exp(lin_fit)
+	
+	if _np.isnan(exp_fit).sum() > 0:
+		raise Exception("Exponential fit failed.  NaN found inside fit results.")
 	
 	if plot is True:
 		fig, ax = _plt.subplots()
@@ -407,7 +412,7 @@ def IV_sweep_analysis(	IV,
 	radius = _np.sqrt(probe_area_m2 / _np.pi) # probe radius, assuming circular
 	
 	if verbose: print("Step 1: Finding the floating potential by idenfying the zero intercept. ")
-	V_float = _find_V_float(IV, smooth_width_in_volts=smooth_width_in_volts, plot=plot_intermediate_steps)
+	V_float = _find_V_float(IV, smooth_width_in_volts=smooth_width_in_volts, plot=False)
 
 	if verbose: print("Step 2: Calculating the ion current by performing a linear fit. ")
 	if len(V_isat_fit_range) == 0:
