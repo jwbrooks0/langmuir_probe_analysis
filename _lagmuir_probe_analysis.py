@@ -416,7 +416,7 @@ def IV_sweep_analysis(	IV,
 
 	if verbose: print("Step 2: Calculating the ion current by performing a linear fit. ")
 	if len(V_isat_fit_range) == 0:
-		V_isat_fit_range = [-_np.inf, (V_float - IV.V[0].data) / 1.25 + IV.V[0].data] # TODO This 1.25 factor is somewhat arbitrary.  Is there a better way to implement this?
+		V_isat_fit_range = [-_np.inf, (V_float - IV.V[0].data) / 2.0 + IV.V[0].data] # TODO This 1.25 factor is somewhat arbitrary.  Is there a better way to implement this?
 	I_windowed_for_isat = IV[IV.V < V_isat_fit_range[1]]
 	I_ion_fit, I_ion_fit_func, _, _ = _polynomial_fit(I_windowed_for_isat, order=1, plot=plot_intermediate_steps)	## (optional) initialize plot
 	
