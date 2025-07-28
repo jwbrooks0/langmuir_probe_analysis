@@ -37,51 +37,41 @@ def _update_title(axes, temperature_in_eV=_np.nan, n_e=_np.nan, debye=_np.nan, r
 
 def plot_IV_data(IV, 
                  fig=None, 
-                 ax=None, 
+                 axes=None, 
                  label='', 
-                 marker=None, 
-                 linestyle=None, 
-                 color=None, 
                  linthresh=1e-6, 
-                 linewidth=2,
-                 plot_deriv=True,
-                 init=False
+                 # plot_deriv=True,
+                 init=False,
+                 plot_kwargs = dict(marker=None, linestyle=None, color=None, linewidth=2)
                  ): 
     """ subfunction for plotting IV data """
+    assert str(type(IV)) == "<class 'xarray.core.dataarray.DataArray'>", f"IV must be an xarray dataarray filetype.  Instead, type(IV) = {type(IV)}"
     
-    if fig is None and ax is None:
-        if plot_deriv is False:
-            fig, ax = _plt.subplots()
-        else:
-            fig, ax = _plt.subplots(2, sharex=True)
-            ax = list(ax)
-    if type(ax) != list:
-        ax = [ax]
-        
-    IV.plot(ax=ax[0], label=label, marker=marker, linestyle=linestyle, color=color, linewidth=linewidth)
-    ax[0].legend(fontsize=8)
-    ax[0].set_ylabel('Probe current [A]')
-    ax[0].set_xlabel('Probe voltage [V]')
-    if init is True:
-        ax[0].set_yscale('symlog', linthresh=linthresh)
-        ax[0].axhline(linestyle=':', color='grey')
-        ax[0].axvline(linestyle=':', color='grey')
-        fig.set_tight_layout(True)
+    if fig is None and axes is None:
+        fig, axes = _plt.subplots(3, sharex=True)
     
-    if plot_deriv is True:
+    dIdV = _xr.DataArray(_np.gradient(IV) / _np.gradient(IV.V), 
+                   coords=IV.coords)
         
-        dIdV = _xr.DataArray(_np.gradient(IV) / _np.gradient(IV.V), 
-                       coords=IV.coords)
-        dIdV.plot(ax=ax[1], label='IV data')
+    IV.plot(ax=axes[0], label=label, **plot_kwargs, )
+    _np.abs(IV).plot(ax=axes[1], label=label, **plot_kwargs, )
+    dIdV.plot(ax=axes[2], label='IV data', **plot_kwargs, )
+    
+    axes[0].legend(fontsize=8)
+    axes[0].set_ylabel('Probe current [A]')
+    axes[1].set_ylabel('Probe current, mag. [A]')
+    axes[2].set_ylabel(r'$\partial I / \partial V$, [A/V]')
+    axes[1].set_yscale("log")
+    axes[-1].set_xlabel('Probe voltage [V]')
+    
+    for ax in axes:
+        ax.axhline(linestyle=':', color='grey')
+        ax.axvline(linestyle=':', color='grey')
         
-        if init is True:
-            ax[1].set_yscale('symlog', linthresh=linthresh)
-            ax[1].axhline(linestyle=':', color='grey')
-            ax[1].axvline(linestyle=':', color='grey')
-        ax[1].set_ylabel(r'$\partial I / \partial V$, [A/V]')
-        ax[1].set_xlabel('Probe voltage [V]')
+    fig.set_size_inches([8, 8])
+    fig.set_tight_layout(True)
             
-    return fig, ax
+    return fig, axes
 
 
 ##################################
@@ -287,15 +277,17 @@ def _calc_temp_from_electron_current(I_electron,
     return temperature_in_eV, exp_fit
 
 
-def _find_V_float(IV, 
-                     smooth_width_in_volts=1.0, 
-                     plot=False):
+def _find_V_float(
+        IV, 
+        smooth_width_in_volts=1.0, 
+        plot=False,
+        ):
     """ Finds V_float by interporloating V(I)=0 """
     
     I_min = _np.abs(float(IV.min()))
     
     if smooth_width_in_volts > 0:
-        IV = _smooth_IV_data(IV, plot=False, smooth_width_in_volts=smooth_width_in_volts)
+        IV = _smooth_IV_data(IV.copy(), plot=False, smooth_width_in_volts=smooth_width_in_volts)
         
     # swamp I(V) to V(I)
     VI = _xr.DataArray(IV.V.data, dims='I', coords=[IV.data])
@@ -305,9 +297,10 @@ def _find_V_float(IV,
     V_float = float(VI.where((VI.I>=-I_min) & (VI.I<=I_min)).interp(I=0))
     
     if plot is True:
-        fig, ax = _plt.subplots(2, sharex=True)
-        plot_IV_data(IV, fig=fig, ax=ax, label='IV')
-        ax.axvline(V_float, linestyle='--', color='r')
+        fig, axes = _plt.subplots(2, sharex=True)
+        plot_IV_data(IV, fig=fig, axes=axes, label='IV')
+        for ax in axes:
+            ax.axvline(V_float, linestyle='--', color='r')
 
     return float(V_float)
 
@@ -413,7 +406,7 @@ def IV_sweep_analysis(
     radius = _np.sqrt(probe_area_m2 / _np.pi) # probe radius, assuming circular
     
     if verbose: print("Step 1: Finding the floating potential by idenfying the zero intercept. ")
-    V_float = _find_V_float(IV, smooth_width_in_volts=smooth_width_in_volts, plot=True)
+    V_float = _find_V_float(IV, smooth_width_in_volts=smooth_width_in_volts, plot=False)
 
     if verbose: print("Step 2: Calculating the ion current by performing a linear fit. ")
     if len(V_isat_fit_range) == 0:
@@ -424,17 +417,17 @@ def IV_sweep_analysis(
     if plot is True:
         if verbose: print("Initializing plot. ")    
         linthresh = 10 ** (_np.floor(_np.log10(_np.abs(float(_np.abs(I_ion_fit).min())))) - 1)        
-        fig, axes = plot_IV_data(IV, label='IV data', marker='x',  linestyle='', linthresh=linthresh, plot_deriv=True, init=True, )
+        fig, axes = plot_IV_data(IV, label='IV data', plot_kwargs = dict(marker='x',  linestyle='', color=None, linewidth=2), linthresh=linthresh, init=True, )
         for a in axes:
             a.axvline(V_float, label='V_float', linestyle='--', color='k')
-        plot_IV_data(I_ion_fit.where(I_ion_fit.V<=V_float), fig=fig, ax=axes,  label='Ion current fit', linewidth=2, plot_deriv=False, )
+        plot_IV_data(I_ion_fit.where(I_ion_fit.V<=V_float), fig=fig, axes=axes,  label='Ion current fit', )
         _update_title(axes, V_float=V_float, radius=radius)
 
     if verbose: print("Step 3: Solving for the electron current by subtracting the ion saturation linear fit from I(V). ")
     I_electron = IV.copy() - I_ion_fit_func(IV.V)
     I_electron_smoothed = _smooth_IV_data(I_electron, smooth_width_in_volts=smooth_width_in_volts, plot=False)
     if plot is True:
-        plot_IV_data(I_electron, fig=fig, ax=axes, label='Electron current', marker='+', linestyle='', plot_deriv=False,)
+        plot_IV_data(I_electron, fig=fig, axes=axes, label='Electron current', plot_kwargs = dict(marker='+',  linestyle='', color=None, linewidth=2), )
         _update_title(axes, V_float=V_float, radius=radius)
         
     if verbose: print("Step 4: Guessing at V_plasma either by 1) using the provided guess or 2) calculating it from the provided temperature guess. ")
@@ -475,7 +468,7 @@ def IV_sweep_analysis(
     if plot is True:
         for a in axes:
             a.axvline(V_plasma, label='V_plasma', linestyle='--', color='r')
-        plot_IV_data(log_fit, fig=fig, ax=axes, label='Electron current fit', linewidth=2, linthresh=linthresh, plot_deriv=False,)
+        plot_IV_data(log_fit, fig=fig, axes=axes, label='Electron current fit', linthresh=linthresh, )
         _update_title(axes, V_float=V_float, radius=radius, temperature_in_eV=temperature_in_eV, V_plasma=V_plasma)
 
     if verbose: print("Step 6: Calcuating electron density, debye length, and plasma frequency ")
@@ -549,14 +542,15 @@ def _example_1():
                     1.13296100e-02])
     IV = _xr.DataArray(IV, coords={'V': V})
     
-    results = IV_sweep_analysis(IV, 
-                        probe_area_m2=10e-5, 
-                        plot=True, 
-                        ion_mass=_M_AR, 
-                        temperature_in_eV_guess=2.0,
-                        calc_Vp_from_deriv=True,
-                        remove_Vp_guess_at_end=False,
-                        )
+    results = IV_sweep_analysis(
+        IV, 
+        probe_area_m2=10e-5, 
+        plot=True, 
+        ion_mass=_M_AR, 
+        temperature_in_eV_guess=2.0,
+        calc_Vp_from_deriv=True,
+        remove_Vp_guess_at_end=False,
+        )
     print(results)
     fig = _plt.gcf()
     fig.savefig('Example_1_results.png', dpi=150)
@@ -670,14 +664,15 @@ def _example_2():
                     4.487215e-03])
     IV = _xr.DataArray(IV, coords={'V': V})
     
-    results = IV_sweep_analysis(IV,  
-                                probe_area_m2=5e-5, 
-                                plot=True, 
-                                ion_mass=_M_AR, 
-                                temperature_in_eV_guess=2.0,
-                                calc_Vp_from_deriv=True,
-                                remove_Vp_guess_at_end=False,
-                                )
+    results = IV_sweep_analysis(
+        IV,  
+        probe_area_m2=5e-5, 
+        plot=True, 
+        ion_mass=_M_AR, 
+        temperature_in_eV_guess=2.0,
+        calc_Vp_from_deriv=True,
+        remove_Vp_guess_at_end=False,
+        )
     print(results)
     fig = _plt.gcf()
     fig.savefig('Example_2_results.png', dpi=150)
@@ -723,16 +718,17 @@ def _example_3():
                     2.836579e-03,  2.894709e-03,  2.950749e-03])
     IV = _xr.DataArray(IV, coords={'V': V})
     
-    results = IV_sweep_analysis(IV,  
-                                probe_area_m2=20e-5, 
-                                plot=True, 
-                                ion_mass=_M_XE, 
-                                temperature_in_eV_guess=0.5,
-                                calc_Vp_from_deriv=True,
-                                V_isat_fit_range=[-_np.inf, -10],
-                                remove_Vp_guess_at_end=False,
-                                smooth_width_in_volts=0.0,
-                                )
+    results = IV_sweep_analysis(
+        IV,  
+        probe_area_m2=20e-5, 
+        plot=True, 
+        ion_mass=_M_XE, 
+        temperature_in_eV_guess=0.5,
+        calc_Vp_from_deriv=True,
+        V_isat_fit_range=[-_np.inf, -10],
+        remove_Vp_guess_at_end=False,
+        smooth_width_in_volts=0.0,
+        )
     print(results)
     fig = _plt.gcf()
     fig.savefig('Example_3_results.png', dpi=150)
