@@ -30,7 +30,16 @@ _M_AR = 39.948 * _AMU         # mass of argon
 ##################################
 # %% Plotting functions
 
-def _update_title(axes, temperature_in_eV=_np.nan, n_e=_np.nan, debye=_np.nan, radius=_np.nan, V_float=_np.nan, V_plasma=_np.nan, f_p=_np.nan):
+def _update_title(
+        axes, 
+        temperature_in_eV=_np.nan, 
+        n_e=_np.nan, 
+        debye=_np.nan, 
+        radius=_np.nan, 
+        V_float=_np.nan, 
+        V_plasma=_np.nan, 
+        f_p=_np.nan,
+        ):
     new_title = 'Temperature = %.2f eV, \n Electron density = %.2e %s, \n Debye length = %.2e m, radius/debye = %.2e m \n V_float=%.2f V, V_plasma=%.2f V, f_plasma=%.2e Hz' % (temperature_in_eV, n_e, r'm$^{-3}$', debye, radius/debye, V_float, V_plasma, f_p)
     axes[0].set_title(new_title, fontsize=10)
 
@@ -39,7 +48,7 @@ def plot_IV_data(IV,
                  fig=None, 
                  axes=None, 
                  label='', 
-                 linthresh=1e-6, 
+                 # linthresh=1e-6, 
                  # plot_deriv=True,
                  init=False,
                  plot_kwargs = dict(marker=None, linestyle=None, color=None, linewidth=2)
@@ -89,13 +98,13 @@ def _smooth_IV_data(IV, smooth_width_in_volts=3, plot=False):
         fig, ax = _plt.subplots()
         IV.plot(ax=ax, marker='x', linestyle='', label='raw')
         IV_smoothed.plot(ax=ax, label='smoothed')
-        ax.set_yscale('symlog', linthresh=1e-5)
+        # ax.set_yscale('symlog', linthresh=1e-5)
         
     return IV_smoothed
 
 
 def _polynomial_fit(da,    
-                order=2, 
+                order, 
                 plot=False,
                 verbose=False):
     """ 
@@ -195,11 +204,44 @@ def _density_to_plasma_frequency(n0_in_m3):
 ##################################
 # %% Langmuir analysis subfunctions
 
+def _probe_area_correction(
+        IV, 
+        probe_area_in_m2, 
+        n_e, 
+        V_p, 
+        temperature_in_eV,
+        probe_radius,
+        probe_geometry='planar', # 'planar', 'cylindrical', 'spherical',
+        ):
+    """ 
+    Eq. 5 in Lobbia-Beal: https://doi.org/10.2514/1.B35531 
+    Intended as a correction to the linear I_sat fit for isolating the electron current.
+    """
+    print("this function is untested # TODO")
+    
+    assert probe_geometry in ['planar', 'cylindrical', 'spherical'], f"probe_geometry was {probe_geometry}, which was not recognized."
+    
+    if probe_geometry == "planar":
+        return probe_area_in_m2
+    else:
+        debye_length = _calc_debye_length(n_e, temperature_in_eV)
+        # V_bias = IV.V.data[-1]  ## This is incorrect
+        V_bias = IV.V.data
+        x_s = debye_length * _np.sqrt(2) / 3 * ((2 * V_p - V_bias) / temperature_in_eV) ** 0.75
+        
+        if probe_geometry == "cylindrical":
+            corrected_probe_area_in_m2 = probe_area_in_m2 * (1 + x_s / probe_radius)
+        elif probe_geometry == "spherical":
+            corrected_probe_area_in_m2 = probe_area_in_m2 * (1 + x_s / probe_radius) ** 2
+            
+        return corrected_probe_area_in_m2
+            
+            
 def _calc_electron_density(I_electron, 
                            V_plasma, 
                            temperature_in_eV, 
                            probe_area_in_m2):
-    """ calculates electron density """
+    """ calculates electron density using Eq. 3 in Lobbia-Beal: https://doi.org/10.2514/1.B35531 """
     I_e_sat = float(I_electron.interp(V=V_plasma))
     n_e = (I_e_sat / (_E * probe_area_in_m2)) * _np.sqrt(2 * _np.pi * _M_E / (temperature_in_eV * _EV))
     return n_e
@@ -211,26 +253,39 @@ def _calc_Vp_from_theory(temperature_in_eV,
     return _np.log(_np.sqrt(ion_mass / (2 * _np.pi * _M_E))) * temperature_in_eV + V_float
     
 
-def _calc_Vp_from_deriv(I_electron_smoothed, 
+def _calc_Vp_from_deriv(I_electron, 
                            V_float, 
-                           plot=False):
+                           plot=False,
+                           smooth_width_in_volts=0.0,
+                           ):
     """ calculates V_plasma from the derivative of the smoothed V_float """
     
+    I_electron_smoothed = _smooth_IV_data(I_electron, smooth_width_in_volts=smooth_width_in_volts, plot=False)
+    
     # take derivative
-    dIdV = _xr.DataArray(_np.gradient(I_electron_smoothed) / _np.gradient(I_electron_smoothed.V), dims=I_electron_smoothed.dims, coords=I_electron_smoothed.coords)
+    dIdV = _xr.DataArray(_np.gradient(I_electron) / _np.gradient(I_electron.V), dims=I_electron.dims, coords=I_electron.coords)
+    dIdV_smoothed = _xr.DataArray(_np.gradient(I_electron_smoothed) / _np.gradient(I_electron_smoothed.V), dims=I_electron_smoothed.dims, coords=I_electron_smoothed.coords)
     
     # find the maximum value of dIdV above the floating potential
-    Vp = float(dIdV.where(dIdV.V > V_float).idxmax())
+    if smooth_width_in_volts > 0:
+        Vp = float(dIdV_smoothed.where(dIdV.V > V_float).idxmax())
+        
+    else:
+        Vp = float(dIdV.where(dIdV.V > V_float).idxmax())
     
     if plot is True:
         fig, (ax1, ax2) = _plt.subplots(2, sharex=True)
-        I_electron_smoothed.plot(ax=ax1)
-        dIdV.plot(ax=ax2)
+        I_electron.plot(ax=ax1, label="raw I_electron")
+            
+        dIdV.plot(ax=ax2, label="from raw I_electron")
+        if smooth_width_in_volts > 0:
+            I_electron_smoothed.plot(ax=ax1, label="smoothed I_electron")
+            dIdV_smoothed.plot(ax=ax2, label="from smoothed I_electron")
         ax1.plot([Vp, Vp], [float(I_electron_smoothed.min()), float(I_electron_smoothed.max())], color='r', linestyle='--', label='V_plasma')
         ax2.plot([Vp, Vp], [float(dIdV.min()), float(dIdV.max())], color='r', linestyle='--', label='V_plasma')
         for a in [ax1, ax2]:
             a.legend()
-        ax1.set_yscale('symlog', linthresh=1e-5)
+        # ax1.set_yscale('symlog', linthresh=1e-5)
         
     return Vp
 
@@ -256,7 +311,7 @@ def _calc_temp_from_electron_current(I_electron,
 
         # raise Exception("Electron current must be positive to perform this fit.  Check that your I_sat fit is correct. " )
         
-    ## take the natural log of the electron current and apply a linear fit
+    ## take the natural log of the electron current and apply a linear fit.  Doing a linear fit on the ln(I) is important because it better weights the data for fitting.
     ln_Ie = _xr.DataArray(_np.log(Ie_windowed), dims=Ie_windowed.dims, coords=Ie_windowed.coords)
     lin_fit, ffit, _, _ = _polynomial_fit(ln_Ie, order=1, plot=False, verbose=False)
     
@@ -282,9 +337,15 @@ def _find_V_float(
         smooth_width_in_volts=1.0, 
         plot=False,
         ):
-    """ Finds V_float by interporloating V(I)=0 """
+    """ 
+    Finds V_float by interporloating V(I)=0 
+    We analyze V(I)=0 instead of I(V)=0 because V(I) is less likely to have multiple zero intercepts due to the significantly larger gradient.
+    A consequence of this is that V(I) might have duplicate values of I, and the interp() function below will crash if this happends.
+    """
     
     I_min = _np.abs(float(IV.min()))
+    if smooth_width_in_volts == 0:
+        smooth_width_in_volts = 1.0 # this must be a non-zero value.  It's possible for V(I) to have repeat I values and smoothing fixes this.  
     
     if smooth_width_in_volts > 0:
         IV = _smooth_IV_data(IV.copy(), plot=False, smooth_width_in_volts=smooth_width_in_volts)
@@ -293,8 +354,8 @@ def _find_V_float(
     VI = _xr.DataArray(IV.V.data, dims='I', coords=[IV.data])
     
     # find the zero crossing in V(I)
-    # TODO write code to handle if there is more than one zero crossing
-    V_float = float(VI.where((VI.I>=-I_min) & (VI.I<=I_min)).interp(I=0))
+    VI_narrow = VI.where((VI.I>=-I_min) & (VI.I<=I_min)).dropna("I")
+    V_float = float(VI_narrow.interp(I=0.0))
     
     if plot is True:
         fig, axes = _plt.subplots(2, sharex=True)
@@ -395,6 +456,9 @@ def IV_sweep_analysis(
      * [2] Merlino, "Understanding Langmuir probe current-voltage characteristics" https://aapt.scitation.org/doi/10.1119/1.2772282
         
     """
+    if verbose: print("Checking inputs. ")
+    assert probe_geometry in ['planar', 'cylindrical', 'spherical'], f"probe_geometry was {probe_geometry}, which was not recognized."
+    assert str(type(IV)) == "<class 'xarray.core.dataarray.DataArray'>", f"IV must be an xarray dataarray filetype.  Instead, type(IV) = {type(IV)}"
 
     if verbose: print("Trimming voltage range if requested. ")
     if type(V_lim) is list:
@@ -403,21 +467,28 @@ def IV_sweep_analysis(
         
     if verbose: print("Performing misc. calculations. ")
     dV = _np.mean(IV.V[1:].values - IV.V[:-1].values) # calculate the average voltage step
-    radius = _np.sqrt(probe_area_m2 / _np.pi) # probe radius, assuming circular
+    if probe_geometry == "planar":
+        radius = _np.sqrt(probe_area_m2 / _np.pi) # probe radius, assuming circular
+    elif probe_geometry == "spherical": 
+        radius = _np.sqrt(probe_area_m2 / (4 * _np.pi)) # probe radius, assuming circular
+    ## TODO add spherical
     
     if verbose: print("Step 1: Finding the floating potential by idenfying the zero intercept. ")
     V_float = _find_V_float(IV, smooth_width_in_volts=smooth_width_in_volts, plot=False)
 
     if verbose: print("Step 2: Calculating the ion current by performing a linear fit. ")
     if len(V_isat_fit_range) == 0:
-        V_isat_fit_range = [-_np.inf, (V_float - IV.V[0].data) / 2.0 + IV.V[0].data] # TODO This 1.25 factor is somewhat arbitrary.  Is there a better way to implement this?
+        V_isat_fit_range = [-_np.inf, (V_float - IV.V[0].data) / 2.0 + IV.V[0].data] # TODO This factor is somewhat arbitrary.  Is there a better way to implement this?
     I_windowed_for_isat = IV[IV.V < V_isat_fit_range[1]]
-    I_ion_fit, I_ion_fit_func, _, _ = _polynomial_fit(I_windowed_for_isat, order=1, plot=plot_intermediate_steps)    ## (optional) initialize plot
+    if probe_geometry == "planar":
+        I_ion_fit, I_ion_fit_func, _, _ = _polynomial_fit(I_windowed_for_isat, order=1, plot=plot_intermediate_steps)    ## (optional) initialize plot
+    else:
+        raise Exception("cylindrical and spherical geometries not yet implemented.  # TODO")
     
+    if verbose and plot is True: print("Optional. Initializing plot. ") 
     if plot is True:
-        if verbose: print("Initializing plot. ")    
-        linthresh = 10 ** (_np.floor(_np.log10(_np.abs(float(_np.abs(I_ion_fit).min())))) - 1)        
-        fig, axes = plot_IV_data(IV, label='IV data', plot_kwargs = dict(marker='x',  linestyle='', color=None, linewidth=2), linthresh=linthresh, init=True, )
+        # linthresh = 10 ** (_np.floor(_np.log10(_np.abs(float(_np.abs(I_ion_fit).min())))) - 1)        
+        fig, axes = plot_IV_data(IV, label='IV data', plot_kwargs = dict(marker='x',  linestyle='', color=None, linewidth=2),  ) # linthresh=linthresh, init=True,
         for a in axes:
             a.axvline(V_float, label='V_float', linestyle='--', color='k')
         plot_IV_data(I_ion_fit.where(I_ion_fit.V<=V_float), fig=fig, axes=axes,  label='Ion current fit', )
@@ -425,7 +496,6 @@ def IV_sweep_analysis(
 
     if verbose: print("Step 3: Solving for the electron current by subtracting the ion saturation linear fit from I(V). ")
     I_electron = IV.copy() - I_ion_fit_func(IV.V)
-    I_electron_smoothed = _smooth_IV_data(I_electron, smooth_width_in_volts=smooth_width_in_volts, plot=False)
     if plot is True:
         plot_IV_data(I_electron, fig=fig, axes=axes, label='Electron current', plot_kwargs = dict(marker='+',  linestyle='', color=None, linewidth=2), )
         _update_title(axes, V_float=V_float, radius=radius)
@@ -433,8 +503,10 @@ def IV_sweep_analysis(
     if verbose: print("Step 4: Guessing at V_plasma either by 1) using the provided guess or 2) calculating it from the provided temperature guess. ")
     if type(Vp_guess) is not type(None):
         V_plasma = Vp_guess
-    else:
+    elif isinstance(temperature_in_eV_guess, (int, float)):
         V_plasma = _calc_Vp_from_theory(temperature_in_eV_guess, V_float, ion_mass, )    
+    else:
+        raise Exception("Vp_guess or temperature_in_eV_guess must be provided...  Neither were. ")
     if plot is True:
         for a in axes:
             a.axvline(V_plasma, label='V_plasma guess', linestyle='--', color='grey')
@@ -444,31 +516,31 @@ def IV_sweep_analysis(
     if verbose: print("Step 5: Iteratively solving for V_plasma and temperature until convergence. ")
     for i in range(10): # TODO presently this is a brute-force interation of 10 cycles.  I can do this more intelligently.
         
-        ## Determines the bounds for the exponential region for fitting
+        ## Step 5a: Determines the bounds for the exponential region for fitting
         if len(V_ion_current_exp_range) == 2:
             exp_fit_bounds = V_ion_current_exp_range
         else:
-            exp_fit_bounds = [V_float, (V_plasma - V_float) / 1.5 + V_float] # TODO This 1.5 factor is somewhat arbitrary.  Is there a better way to implement this?
+            exp_fit_bounds = [V_float, (V_plasma - V_float) / 2.0 + V_float] # TODO This 1.5 factor is somewhat arbitrary.  Is there a better way to implement this?
         
-        ## Calclutes kTe/e (temperature with units in eV)
+        ## Step 5b: Calclutes temperature, kTe/e, which has units in eV (actually volts)
         temperature_in_eV, log_fit = _calc_temp_from_electron_current(I_electron, 
                                                                 exp_fit_bounds=exp_fit_bounds, 
                                                                 dV=dV, 
                                                                 plot=plot_intermediate_steps)
                      
-        ## Calculate V_plasma
+        ## Step 5c: Calculate V_plasma
         if calc_Vp_from_deriv is True:
-            V_plasma = _calc_Vp_from_deriv(I_electron_smoothed, V_float, plot=plot_intermediate_steps)
-        else:
+            V_plasma = _calc_Vp_from_deriv(I_electron, V_float, plot=plot_intermediate_steps, smooth_width_in_volts=smooth_width_in_volts, )
+        else: # calculate Vp using temperature.  This method is numerically more stable but arguably less accurate.  
             V_plasma = _calc_Vp_from_theory(temperature_in_eV, V_float, ion_mass)
             
         if verbose:
-            print("Converging on V_plasma and temp: ", V_plasma, temperature_in_eV)
+            print(f"Step {i}: Converging on V_plasma and temp: {V_plasma}, {temperature_in_eV}")
             
     if plot is True:
         for a in axes:
             a.axvline(V_plasma, label='V_plasma', linestyle='--', color='r')
-        plot_IV_data(log_fit, fig=fig, axes=axes, label='Electron current fit', linthresh=linthresh, )
+        plot_IV_data(log_fit, fig=fig, axes=axes, label='Electron current fit', ) # linthresh=linthresh, 
         _update_title(axes, V_float=V_float, radius=radius, temperature_in_eV=temperature_in_eV, V_plasma=V_plasma)
 
     if verbose: print("Step 6: Calcuating electron density, debye length, and plasma frequency ")
@@ -478,7 +550,7 @@ def IV_sweep_analysis(
     if plot is True:
         _update_title(axes, V_float=V_float, radius=radius, temperature_in_eV=temperature_in_eV, n_e=n_e, debye=debye, V_plasma=V_plasma, f_p=f_p)
         
-    if verbose: print("Step 7: Iteratively solving for the ion density.  This is not implemented because I can't  the method described in reference #1 to work.  Possible typo in reference?  ")
+    if verbose: print("Step 7: Iteratively solving for the ion density.  #TODO This is not implemented because I can't  the method described in reference #1 to work.  Possible typo in reference?  ")
         
     if plot is True:
         if verbose: print("Finalizing figure. ")
